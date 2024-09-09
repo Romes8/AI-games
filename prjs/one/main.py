@@ -5,6 +5,8 @@ import jax.numpy as jnp
 import numpy as np
 import jax
 from tqdm import tqdm
+import pickle
+
 from collections import deque, namedtuple
 
 # %% Constants ###########################################################
@@ -14,17 +16,15 @@ entry = namedtuple("Memory", ["obs", "action", "reward", "next_obs", "done"])
 memory = deque(maxlen=1000)  # <- replay buffer
 # define more as needed
 state_size = env.observation_space.shape[0] # 4    
-print("state_space:", state_size)
 action_size= env.action_space.n # 2
-print("action_space:", action_size)
 
-learning_rate = 0.001 # how fast the model learns
+learning_rate = 0.0005 # how fast the model learns
 gamma = 0.99 # discount factor
 batch_size = 32 # how many samples to use for training
-epsilon = 1.0 # initial exploration rate
+epsilon = 0.5 # initial exploration rate
 epsilon_decay = 0.995 # how much to decay the exploration rate  
 epsilon_min = 0.1 # minimum exploration rate
-update_target_every = 5 # how often to update the target network   
+update_target_every = 10 # how often to update the target network   
 
 # %% Init params for NN
 def init_params(key, input_size, output_size):
@@ -88,13 +88,16 @@ def sample_memory(memory, batch_size):
     return map(np.array, zip(*batch))
 
 # %% Training Loop
-for episode in range(1000): #how many episodes/times to train
+all_rewards = []
+
+
+for episode in tqdm(range(1500)): #how many episodes/times to train
     state, _ = env.reset() #reset the environment
     done = False #done is false
     total_reward = 0 #total reward is 0
 
     while not done: #while done is not true
-        action = epsilon_greedy_policy(params, state, epsilon) #choose an action and policy
+        action = int(epsilon_greedy_policy(params, state, epsilon))
         next_state, reward, terminated, truncated, _ = env.step(action) #take the action and get the next state, reward, and done
         done = terminated or truncated #if terminated or truncated, then done is true
 
@@ -115,10 +118,46 @@ for episode in range(1000): #how many episodes/times to train
     if episode % update_target_every == 0:
         target_params = params
 
+    all_rewards.append(total_reward)
+
+
     print(f"Episode {episode}, Total Reward: {total_reward}")
 
 env.close()
 
+average_reward = sum(all_rewards) / len(all_rewards)
+print("Average for a reward: ", average_reward)
+
+
+# %% Save file
+with open('model_params_try1.pkl', 'wb') as f:
+    pickle.dump(params, f)
+
+# %% Load
+with open('model_params_try1.pkl', 'rb') as f:
+    params = pickle.load(f)
+
+# %% Run the model
+state, _ = env.reset()
+done = False
+total_reward = 0
+
+while not done:
+    q_values = q_network(params, state)
+    action = int(jnp.argmax(q_values))
+    
+    # Take the action in the environment
+    next_state, reward, terminated, truncated, _ = env.step(action)
+    done = terminated or truncated
+    
+    # Update state and accumulate reward
+    state = next_state
+    total_reward += reward
+    
+    env.render()
+
+print(f"Total Reward: {total_reward}")
+env.close()
 
 # %% Environment #########################################################
 # obs, info = env.reset() 

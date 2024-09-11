@@ -89,9 +89,10 @@ def sample_memory(memory, batch_size):
 
 # %% Training Loop
 all_rewards = []
+counter = 0
 
-
-for episode in tqdm(range(1500)): #how many episodes/times to train
+for episode in range(1500): #how many episodes/times to train
+    counter = counter + 1
     state, _ = env.reset() #reset the environment
     done = False #done is false
     total_reward = 0 #total reward is 0
@@ -120,8 +121,9 @@ for episode in tqdm(range(1500)): #how many episodes/times to train
 
     all_rewards.append(total_reward)
 
-
-    print(f"Episode {episode}, Total Reward: {total_reward}")
+    if counter == 5:
+        print(f"Episode {episode}, Total Reward: {total_reward}")
+        counter = 0
 
 env.close()
 
@@ -130,11 +132,11 @@ print("Average for a reward: ", average_reward)
 
 
 # %% Save file
-with open('model_params_try1.pkl', 'wb') as f:
+with open('model_params_try2.pkl', 'wb') as f:
     pickle.dump(params, f)
 
 # %% Load
-with open('model_params_try1.pkl', 'rb') as f:
+with open('model_params_try2.pkl', 'rb') as f:
     params = pickle.load(f)
 
 # %% Run the model

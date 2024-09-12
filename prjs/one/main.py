@@ -18,9 +18,9 @@ memory = deque(maxlen=1000)  # <- replay buffer
 state_size = env.observation_space.shape[0] # 4    
 action_size= env.action_space.n # 2
 
-learning_rate = 0.0005 # how fast the model learns
+learning_rate = 0.001 # how fast the model learns
 gamma = 0.99 # discount factor
-batch_size = 32 # how many samples to use for training
+batch_size = 64 # how many samples to use for training
 epsilon = 0.5 # initial exploration rate
 epsilon_decay = 0.995 # how much to decay the exploration rate  
 epsilon_min = 0.1 # minimum exploration rate
@@ -29,12 +29,13 @@ update_target_every = 10 # how often to update the target network
 # %% Init params for NN
 def init_params(key, input_size, output_size):
     rng, key = random.split(key) # split the key into two keys
+    print("Key:", key)
     params = {}
-    params['w1'] = random.normal(key, (input_size, 32)) * 0.01 # initialize the weights
-    params['b1'] = jnp.zeros((32,)) # initialize the biases
-    params['w2'] = random.normal(key, (32, 32)) * 0.01 # initialize the weights
-    params['b2'] = jnp.zeros((32,)) # initialize the biases
-    params['w3'] = random.normal(key, (32, output_size)) * 0.01 # initialize the weights
+    params['w1'] = random.normal(key, (input_size,64)) * 0.01 # initialize the weights
+    params['b1'] = jnp.zeros((64,)) # initialize the biases
+    params['w2'] = random.normal(key, (64, 64)) * 0.01 # initialize the weights
+    params['b2'] = jnp.zeros((64,)) # initialize the biases
+    params['w3'] = random.normal(key, (64, output_size)) * 0.01 # initialize the weights
     params['b3'] = jnp.zeros((output_size,)) # initialize the biases
     return params
 
@@ -68,9 +69,8 @@ def update(params, grads, lr):
     return updated_params
 
 # %% Model ###############################################################
-def random_policy_fn(rng, obs): # action (shape: ())
-    n = action_size
-    return random.randint(rng, (1,), 0, n).item()
+def random_policy_fn(rng, obs, epsilon): # action (shape: ())
+    return np.random.choice(action_size)
 
 # %% Epsilon greedy policy - custom
 def epsilon_greedy_policy(params, state, epsilon):
@@ -98,12 +98,12 @@ for episode in range(1500): #how many episodes/times to train
     total_reward = 0 #total reward is 0
 
     while not done: #while done is not true
-        action = int(epsilon_greedy_policy(params, state, epsilon))
+        action = int(random_policy_fn(params, state, epsilon))
         next_state, reward, terminated, truncated, _ = env.step(action) #take the action and get the next state, reward, and done
         done = terminated or truncated #if terminated or truncated, then done is true
 
         memory.append(entry(state, action, reward, next_state, done))
-        state = next_state
+        state = next_state  
         total_reward += reward
 
         if len(memory) >= batch_size:
@@ -132,7 +132,7 @@ print("Average for a reward: ", average_reward)
 
 
 # %% Save file
-with open('model_params_try2.pkl', 'wb') as f:
+with open('model_params_random.pkl', 'wb') as f:
     pickle.dump(params, f)
 
 # %% Load

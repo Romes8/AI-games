@@ -30,7 +30,10 @@ batch_size = 32
 # 3. AT THIS POINT YOU HAVE AN OUTPUT "Y_HAT" FROM THE MODEL. USE GRADS TO OPTIMIZE WEIGHTS.
 
 # %% Load data
-mnist = tfds.load('mnist', split='train')
+
+data_dir = "C:\\Transfer\\Dokumenty\\DANSKO\\ITU\\Games\\3rdSemester\\AI\\dataset"
+
+mnist = tfds.load('mnist', split='train', data_dir=data_dir)
 x_data = jnp.array([x['image'] for x in tfds.as_numpy(mnist)]).astype(jnp.float32)
 y_data = jnp.array([x['label'] for x in tfds.as_numpy(mnist)]).astype(jnp.int32)
 

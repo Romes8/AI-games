@@ -84,10 +84,27 @@ def train_step(state, batch):
 rng = jax.random.PRNGKey(0)
 state = create_train_state(rng, learning_rate=1e-3)
 
+def visualize_reconstruction(original, reconstructed, epoch):
+    fig, axes = plt.subplots(1, 2, figsize=(10, 5))
+    axes[0].imshow(original)
+    axes[0].set_title('Original Image')
+    axes[0].axis('off')
+    
+    axes[1].imshow(reconstructed)
+    axes[1].set_title(f'Reconstructed Image (Epoch {epoch})')
+    axes[1].axis('off')
+    
+    plt.show()
+
 # %% Actual data train
-for epoch in range(10):  # Adjust the number of epochs as needed
+for epoch in range(50):  # Adjust the number of epochs as needed
     state, loss = train_step(state, data)
     print(f'Epoch {epoch}, Loss: {loss}')
+
+    sample_image = data[0]
+    reconstructed_image = state.apply_fn({'params': state.params}, sample_image[None, ...])[0]
+    
+    visualize_reconstruction(sample_image, reconstructed_image, epoch)
 
 
 # %%Reconstruct images

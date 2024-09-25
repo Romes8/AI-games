@@ -66,27 +66,36 @@ with open('sokoban_levels_combined.pkl', 'rb') as f:
 
 # %% Show one level, get the shape as well --------------------
 level_index = 700
+
+print("Original Min pixel value:", jnp.min(levels_loaded[8]))
+print("Original Max pixel value:", jnp.max(levels_loaded[8]))
+
+levels_loaded = jnp.array(levels_loaded).astype(jnp.float32) / 242.0
+print("Level shape: ",levels_loaded[level_index].shape)
+print("Dataset shape: ", levels_loaded.shape)
+
+print("New Min pixel value:", jnp.min(levels_loaded[8]))
+print("New Max pixel value:", jnp.max(levels_loaded[8]))
+
+
 plt.imshow(levels_loaded[level_index])
 plt.title("Sokoban Level")
 plt.axis('off')
 plt.show()
 
-print("Level shape: ",levels_loaded[level_index].shape)
-# Ensure the levels are the correct shape
-levels_loaded = [jnp.array(level) for level in levels_loaded]
-levels_loaded = [jnp.resize(level, (160, 160, 3)) for level in levels_loaded]
 
-# %% Autoencoder -----------------------------------------
+
+# %% Define the Encoder and Decoder -------------------------------------
 class Encoder(nn.Module):
     latent_dim: int
 
     @nn.compact
     def __call__(self, x):
-        x = nn.Conv(16, (3, 3), strides=(2, 2))(x)
-        x = nn.relu(x)
         x = nn.Conv(32, (3, 3), strides=(2, 2))(x)
         x = nn.relu(x)
         x = nn.Conv(64, (3, 3), strides=(2, 2))(x)
+        x = nn.relu(x)
+        x = nn.Conv(128, (3, 3), strides=(2, 2))(x)
         x = nn.relu(x)
         x = x.reshape((x.shape[0], -1))  # Flatten
         x = nn.Dense(self.latent_dim)(x)
@@ -97,17 +106,18 @@ class Decoder(nn.Module):
 
     @nn.compact
     def __call__(self, z):
-        x = nn.Dense(64 * 20 * 20)(z)
+        x = nn.Dense(128 * 20 * 20)(z)
         x = nn.relu(x)
-        x = x.reshape((-1, 20, 20, 64))
+        x = x.reshape((-1, 20, 20, 128))
+        x = nn.ConvTranspose(64, (3, 3), strides=(2, 2))(x)
+        x = nn.relu(x)
         x = nn.ConvTranspose(32, (3, 3), strides=(2, 2))(x)
-        x = nn.relu(x)
-        x = nn.ConvTranspose(16, (3, 3), strides=(2, 2))(x)
         x = nn.relu(x)
         x = nn.ConvTranspose(self.output_shape[-1], (3, 3), strides=(2, 2), padding='SAME')(x)
         x = nn.sigmoid(x)  # Assuming normalized inputs
         return x
-    
+
+# %% Autoencoder
 class Autoencoder(nn.Module):
     latent_dim: int
     output_shape: tuple
@@ -115,48 +125,63 @@ class Autoencoder(nn.Module):
     def setup(self):
         self.encoder = Encoder(self.latent_dim)
         self.decoder = Decoder(self.output_shape)
-
-    def __call__(self, x):
-        z = self.encoder(x)
-        x_reconstructed = self.decoder(z)
-        return x_reconstructed
     
-# %% Prepare training -----------------------------------------
-latent_dim = 10
-output_shape = (1, 160, 160, 3)
-
-model = Autoencoder(latent_dim=latent_dim, output_shape=output_shape)
+    def __call__(self, x):
+        latent = self.encoder(x)
+        reconstructed = self.decoder(latent)
+        return reconstructed
 
 def create_train_state(rng, learning_rate):
-    params = model.init(rng, jnp.ones(output_shape))['params']
+    model = Autoencoder(latent_dim=64, output_shape=(1, 160, 160, 3))
+    variables = model.init(rng, jnp.ones((1, 160, 160, 3)))
+    params = variables['params']
     tx = optax.adam(learning_rate)
     return train_state.TrainState.create(apply_fn=model.apply, params=params, tx=tx)
 
-def compute_loss(params, batch):
-    reconstructions = model.apply({'params': params}, batch)
-    loss = jnp.mean((reconstructions - batch) ** 2)
-    return loss
-
 @jax.jit
 def train_step(state, batch):
-    grads = jax.grad(compute_loss)(state.params, batch)
+    def loss_fn(params):
+        reconstructed = state.apply_fn({'params': params}, batch)
+        loss = jnp.mean((reconstructed - batch) ** 2)
+        return loss
+    
+    grad_fn = jax.value_and_grad(loss_fn)
+    loss, grads = grad_fn(state.params)
     state = state.apply_gradients(grads=grads)
-    return state
+    return state, loss
 
-# %% Train -------------------------------------------------------
+def visualize_reconstruction(original, reconstructed, epoch):
+    fig, axes = plt.subplots(1, 2, figsize=(10, 5))
+    axes[0].imshow(original)
+    axes[0].set_title('Original Image')
+    axes[0].axis('off')
+    
+    axes[1].imshow(reconstructed)
+    axes[1].set_title(f'Reconstructed Image (Epoch {epoch})')
+    axes[1].axis('off')
+    
+    plt.show()
+
+# %% Training loop
 rng = jax.random.PRNGKey(0)
-learning_rate = 0.001
-state = create_train_state(rng, learning_rate)
-batch_size = 32
+state = create_train_state(rng, learning_rate=0.001)
 
-def create_batches(data, batch_size):
-    num_batches = len(data) // batch_size
-    return np.array_split(data, num_batches)
+for epoch in range(10):  # Adjust the number of epochs as needed
+    state, loss = train_step(state, levels_loaded)
+    print(f'Epoch {epoch}, Loss: {loss}')
 
-batches = create_batches(levels_loaded, batch_size)
+    sample_image = levels_loaded[0]
+    reconstructed_image = state.apply_fn({'params': state.params}, sample_image[None, ...])[0]
+    
+    visualize_reconstruction(sample_image, reconstructed_image, epoch)
 
-for epoch in range(10):
-    for batch in batches:
-        batch = jnp.array(batch)  # Ensure batch is JAX array
-        state = train_step(state, batch)
-    print(f"Epoch {epoch + 1} completed.")
+# %% Reconstruct images
+reconstructed_images = state.apply_fn({'params': state.params}, levels_loaded)
+# %% Display original and reconstructed images
+fig, axes = plt.subplots(2, 10, figsize=(20, 4))
+for i in range(10):
+    axes[0, i].imshow(levels_loaded[i])
+    axes[0, i].axis('off')
+    axes[1, i].imshow(reconstructed_images[i])
+    axes[1, i].axis('off')
+plt.show()

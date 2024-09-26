@@ -1,4 +1,5 @@
 # %% import
+import flax
 import gym
 import gym_sokoban
 import numpy as np
@@ -6,6 +7,7 @@ import matplotlib.pyplot as plt
 import optax
 import pickle
 import jax
+from jax import nn
 import jax.numpy as jnp
 import flax.linen as nn
 import optax
@@ -65,7 +67,7 @@ with open('sokoban_levels_combined.pkl', 'rb') as f:
     levels_loaded = pickle.load(f)
 
 # %% Show one level, get the shape as well --------------------
-level_index = 700
+level_index = 600
 
 print("Original Min pixel value:", jnp.min(levels_loaded[8]))
 print("Original Max pixel value:", jnp.max(levels_loaded[8]))
@@ -77,6 +79,10 @@ print("Dataset shape: ", levels_loaded.shape)
 print("New Min pixel value:", jnp.min(levels_loaded[8]))
 print("New Max pixel value:", jnp.max(levels_loaded[8]))
 
+# Split into training and test sets - first 900 levels used for traning and 100 for testing
+levels_loaded = levels_loaded[:900]  # Train data
+test_levels = levels_loaded[900:]    # Test data
+
 
 plt.imshow(levels_loaded[level_index])
 plt.title("Sokoban Level")
@@ -87,52 +93,49 @@ plt.show()
 
 # %% Define the Encoder and Decoder -------------------------------------
 class Encoder(nn.Module):
-    latent_dim: int
-
+    ##latent_dim: int
     @nn.compact
     def __call__(self, x):
-        x = nn.Conv(32, (3, 3), strides=(2, 2))(x)
+        x = nn.Conv(features=32, kernel_size=(3, 3), strides=(2, 2))(x)
         x = nn.relu(x)
-        x = nn.Conv(64, (3, 3), strides=(2, 2))(x)
+        x = nn.Conv(features=64, kernel_size=(3, 3), strides=(2, 2))(x)
         x = nn.relu(x)
-        x = nn.Conv(128, (3, 3), strides=(2, 2))(x)
+        x = nn.Conv(features=128, kernel_size=(3, 3), strides=(2, 2))(x)
         x = nn.relu(x)
         x = x.reshape((x.shape[0], -1))  # Flatten
-        x = nn.Dense(self.latent_dim)(x)
         return x
 
 class Decoder(nn.Module):
-    output_shape: tuple
-
+    ##output_shape: tuple
     @nn.compact
-    def __call__(self, z):
-        x = nn.Dense(128 * 20 * 20)(z)
-        x = nn.relu(x)
+    def __call__(self, x):
         x = x.reshape((-1, 20, 20, 128))
-        x = nn.ConvTranspose(64, (3, 3), strides=(2, 2))(x)
+        x = nn.ConvTranspose(features=64, kernel_size=(3, 3), strides=(2, 2))(x)
         x = nn.relu(x)
-        x = nn.ConvTranspose(32, (3, 3), strides=(2, 2))(x)
+        x = nn.ConvTranspose(features=32, kernel_size=(3, 3), strides=(2, 2))(x)
         x = nn.relu(x)
-        x = nn.ConvTranspose(self.output_shape[-1], (3, 3), strides=(2, 2), padding='SAME')(x)
-        x = nn.sigmoid(x)  # Assuming normalized inputs
+        x = nn.ConvTranspose(features=3, kernel_size=(3, 3), strides=(2, 2))(x)
         return x
 
 # %% Autoencoder
 class Autoencoder(nn.Module):
-    latent_dim: int
-    output_shape: tuple
+    #latent_dim: int
+    #output_shape: tuple
 
     def setup(self):
-        self.encoder = Encoder(self.latent_dim)
-        self.decoder = Decoder(self.output_shape)
+        self.encoder = Encoder()
+        self.decoder = Decoder()
     
     def __call__(self, x):
         latent = self.encoder(x)
         reconstructed = self.decoder(latent)
         return reconstructed
+    
+    def decode(self, z):
+        return self.decoder(z)
 
 def create_train_state(rng, learning_rate):
-    model = Autoencoder(latent_dim=64, output_shape=(1, 160, 160, 3))
+    model = Autoencoder()
     variables = model.init(rng, jnp.ones((1, 160, 160, 3)))
     params = variables['params']
     tx = optax.adam(learning_rate)
@@ -162,26 +165,63 @@ def visualize_reconstruction(original, reconstructed, epoch):
     
     plt.show()
 
+    # Save checkpoint function
+def save_checkpoint(state, filename):
+    with open(filename, 'wb') as f:
+        f.write(flax.serialization.to_bytes(state))
+
+def load_checkpoint(filename):
+    with open(filename, 'rb') as f:
+        state_dict = flax.serialization.from_bytes(state, f.read())
+        return state.replace(params=state_dict['params'], opt_state=state_dict['opt_state'])
+
 # %% Training loop
 rng = jax.random.PRNGKey(0)
 state = create_train_state(rng, learning_rate=0.001)
 
-for epoch in range(10):  # Adjust the number of epochs as needed
+for epoch in range(100):  # Adjust the number of epochs as needed
     state, loss = train_step(state, levels_loaded)
     print(f'Epoch {epoch}, Loss: {loss}')
 
     sample_image = levels_loaded[0]
     reconstructed_image = state.apply_fn({'params': state.params}, sample_image[None, ...])[0]
     
+    if epoch % 5 == 0:
+        save_checkpoint(state, f'checkpoint_epoch_{epoch}.pkl')
+
     visualize_reconstruction(sample_image, reconstructed_image, epoch)
+
+# %% save the final state
+save_checkpoint(state, f'final_model.pkl')
 
 # %% Reconstruct images
 reconstructed_images = state.apply_fn({'params': state.params}, levels_loaded)
 # %% Display original and reconstructed images
-fig, axes = plt.subplots(2, 10, figsize=(20, 4))
-for i in range(10):
-    axes[0, i].imshow(levels_loaded[i])
-    axes[0, i].axis('off')
-    axes[1, i].imshow(reconstructed_images[i])
-    axes[1, i].axis('off')
+show_level = 20
+fig, axes = plt.subplots(1, 2, figsize=(10, 5))
+axes[0].imshow(levels_loaded[show_level])
+axes[0].set_title('Original Image')
+axes[0].axis('off')
+
+axes[1].imshow(reconstructed_images[show_level])
+axes[1].set_title(f'Reconstructed Image (NUM: {show_level})')
+axes[1].axis('off')
+
 plt.show()
+
+# %% Generate new levels
+num_samples = 10  # Number of new levels to generate
+# Calculate latent dimension based on your encoder's output
+latent_dim = 19 * 19 * 128  # This should match the flattened output size
+
+rng = jax.random.PRNGKey(42)
+latent_samples = jax.random.normal(rng, (num_samples, latent_dim))
+
+generated_levels = state.apply_fn({'params': state.params}, latent_samples, method=Autoencoder.decode)
+
+for i, level in enumerate(generated_levels):
+    plt.imshow(level)
+    plt.title(f"Generated Level {i+1}")
+    plt.axis('off')
+    plt.show()
+# %%

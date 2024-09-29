@@ -179,7 +179,7 @@ def load_checkpoint(filename):
 rng = jax.random.PRNGKey(0)
 state = create_train_state(rng, learning_rate=0.001)
 
-for epoch in range(100):  # Adjust the number of epochs as needed
+for epoch in range(100):
     state, loss = train_step(state, levels_loaded)
     print(f'Epoch {epoch}, Loss: {loss}')
 
@@ -211,7 +211,7 @@ plt.show()
 
 # %% Generate new levels
 num_samples = 10  # Number of new levels to generate
-# Calculate latent dimension based on your encoder's output
+
 latent_dim = 20 * 20 * 128  # This should match the flattened output size
 
 rng = jax.random.PRNGKey(42)
@@ -220,7 +220,7 @@ latent_samples = jax.random.normal(rng, (num_samples, latent_dim))
 generated_levels = state.apply_fn({'params': state.params}, latent_samples, method=Autoencoder.decode)
 
 for i, level in enumerate(generated_levels):
-    plt.imshow(jnp.clip(level, 0, 1))  # Ensure values are within displayable range
+    plt.imshow(jnp.clip(level, 0, 1))
     plt.title(f"Generated Level {i+1}")
     plt.axis('off')
     plt.show()

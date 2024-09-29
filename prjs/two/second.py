@@ -11,12 +11,12 @@ import os
 import matplotlib.pyplot as plt
 import torchvision.utils as vutils
 
-# Define the autoencoder architecture
+# Makde Auutoencoder
 class SokobanAutoencoder(nn.Module):
     def __init__(self):
         super(SokobanAutoencoder, self).__init__()
         
-        # Encoder
+        # Encoder: squash that level data down
         self.encoder = nn.Sequential(
             nn.Conv2d(3, 32, kernel_size=3, stride=2, padding=1),
             nn.ReLU(),
@@ -28,7 +28,7 @@ class SokobanAutoencoder(nn.Module):
             nn.ReLU()
         )
         
-        # Decoder
+        # Decoder: build data back up into a level
         self.decoder = nn.Sequential(
             nn.ConvTranspose2d(256, 128, kernel_size=3, stride=2, padding=1, output_padding=1),
             nn.ReLU(),
@@ -45,24 +45,23 @@ class SokobanAutoencoder(nn.Module):
         decoded = self.decoder(encoded)
         return decoded
 
-# Function to load and preprocess data
+# Load the dataset with levels
 def load_data():
-    # Load your 3D tensor data from the pickle file
+    # Grab that pickle jar of levels
     with open('sokoban_levels_combined.pkl', 'rb') as f:
         levels_loaded = pickle.load(f)
 
-    # Convert to JAX array and normalize
     levels_loaded = jnp.array(levels_loaded).astype(jnp.float32) / 242.0
 
-    # Print information about the dataset
+    # Check for the dimensions and shape
     print("Dataset shape:", levels_loaded.shape)
     print("Min pixel value:", jnp.min(levels_loaded))
     print("Max pixel value:", jnp.max(levels_loaded))
 
-    # Convert JAX array to PyTorch tensor and permute dimensions
     data = torch.from_numpy(np.array(levels_loaded)).permute(0, 3, 1, 2)
     return data
 
+# Save the model 
 def save_model(model, path='sokoban_autoencoder.pth'):
     directory = os.path.dirname(path)
     if not os.path.exists(directory):
@@ -70,19 +69,19 @@ def save_model(model, path='sokoban_autoencoder.pth'):
     torch.save(model.state_dict(), path)
     print(f"Model saved to {path}")
 
+# Load up a pre-trained model
 def load_model(model, path='sokoban_autoencoder.pth'):
     if os.path.exists(path):
         model.load_state_dict(torch.load(path))
         print(f"Model loaded from {path}")
     else:
-        print(f"No saved model found at {path}")
+        print(f"No saved model found at {path}. Starting from scratch!")
     return model
 
-
-# Training function
+# Train the model
 def train_autoencoder(model, data, num_epochs=10, batch_size=64):
 
-    device = next(model.parameters()).device  # Get the device from the model
+    device = next(model.parameters()).device  # Figure out what we're running on
 
     criterion = nn.MSELoss()
     optimizer = optim.Adam(model.parameters())
@@ -107,12 +106,13 @@ def train_autoencoder(model, data, num_epochs=10, batch_size=64):
 
     visualize_reconstruction(model, inputs, outputs, epoch)
 
+# Show off the levels
 def visualize_levels(levels, save_path=None):
     num_levels = len(levels)
-    rows, cols = 5, 10  # 5 rows, 10 columns to display 50 levels
+    rows, cols = 5, 10  # 5x10 grid, cause it looks cool
     fig, axes = plt.subplots(rows, cols, figsize=(cols*2, rows*2))
     
-    # Color mapping
+    # Colours for the elements
     color_map = {
         0: [0.6, 0.4, 0.2],  # Wall: Brown
         1: [0.9, 0.9, 0.9],  # Floor: Light Gray
@@ -125,7 +125,7 @@ def visualize_levels(levels, save_path=None):
         row = i // cols
         col = i % cols
         
-        # Create RGB image
+        # Make it pretty
         rgb_level = np.zeros((*level.shape, 3))
         for value, color in color_map.items():
             rgb_level[level == value] = color
@@ -144,46 +144,44 @@ def visualize_levels(levels, save_path=None):
 
     plt.close()
 
+# Compare our originals to the fakes
 def visualize_reconstruction(model, inputs, outputs, epoch):
-    # Move tensors to CPU
+    # Move stuff to CPU (sorry, GPU, you can rest now)
     inputs = inputs.cpu()
     outputs = outputs.detach().cpu()
 
-    # Create a grid of original and reconstructed images
+    # Line them up - side by side
     comparison = torch.cat([inputs[:8], outputs[:8]])
     grid = vutils.make_grid(comparison, nrow=8, normalize=True, scale_each=True)
     
-    # Convert to numpy for matplotlib
     grid = grid.numpy().transpose((1, 2, 0))
 
-    # Plot
     plt.figure(figsize=(15, 6))
     plt.imshow(grid)
     plt.title(f"Original (top) vs Reconstructed (bottom) - Epoch {epoch+1}")
     plt.axis('off')
     
-    # Save the figure
+    # Save for the levels in an image
     plt.savefig(f"reconstruction_epoch_{epoch+1}.png")
     plt.close()
 
     print(f"Visualization saved for epoch {epoch+1}")
 
+# Clean up
 def post_process_level(level, num_boxes=3, min_size=8, max_size=15):
-    # Convert the continuous values to discrete elements
     level = level.cpu().numpy()
     level = np.argmax(level, axis=0)
     
-    # Randomly choose level size
     height = width = np.random.randint(min_size, max_size + 1)
     
-    # Start with all walls
+    # Start with walls
     level = np.zeros((height, width), dtype=int)
     
-    # Create an inner area for the game
+    # Carve out the playable area
     inner_start = 1
     inner_end_h, inner_end_w = height - 1, width - 1
     
-    # Fill the inner area with floor
+    # Floor
     level[inner_start:inner_end_h, inner_start:inner_end_w] = 1
     
     def get_random_floor_pos():
@@ -193,21 +191,21 @@ def post_process_level(level, num_boxes=3, min_size=8, max_size=15):
             if level[h, w] == 1:
                 return h, w
 
-    # Place one player
+    # Place the player
     player_pos = get_random_floor_pos()
     level[player_pos] = 3
 
-    # Place boxes and goals
+    # Boxes and goals
     for _ in range(num_boxes):
-        # Place a box
+        # Drop a box
         box_pos = get_random_floor_pos()
         level[box_pos] = 2
 
-        # Place a goal
+        # Set a goal
         goal_pos = get_random_floor_pos()
         level[goal_pos] = 4
 
-    # Add some random walls inside the level
+    #some random walls
     num_inner_walls = (height * width) // 10
     for _ in range(num_inner_walls):
         wall_pos = get_random_floor_pos()
@@ -215,7 +213,7 @@ def post_process_level(level, num_boxes=3, min_size=8, max_size=15):
 
     return level
 
-# Update the generate_level function
+# Run the generation
 def generate_level(model, num_levels=1, num_boxes=3, min_size=8, max_size=15):
     device = next(model.parameters()).device
     model.eval()
@@ -229,16 +227,13 @@ def generate_level(model, num_levels=1, num_boxes=3, min_size=8, max_size=15):
             generated_levels.append(post_processed_level)
     return generated_levels
 
-
-
-# Main execution
 if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
-    # Load data
+    # Load up the data
     data = load_data()
-    data = data.to(device)  # Move data to the appropriate device
+    data = data.to(device)
 
     model = SokobanAutoencoder().to(device)
 
@@ -246,16 +241,14 @@ if __name__ == "__main__":
     if os.path.exists(saved_model_path):
         model = load_model(model, saved_model_path)
     else:
-        # Train the model
+        # Train that model
         train_autoencoder(model, data)
-        # Save the trained model
+        # Save it
         save_model(model, saved_model_path)
     
-    # Generate new levels
     new_levels = generate_level(model, num_levels=50, num_boxes=3, min_size=8, max_size=15)
     
-    print("New levels generated.")
+    print("New levels generated. Let's see what we've got!")
     visualize_levels(new_levels, save_path="generated_levels.png")
 
-    print("Visualization of generated levels saved as 'generated_levels.png'")
-# %%
+    print("Check out 'generated_levels.png' to see our masterpieces!")

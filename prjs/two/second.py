@@ -109,12 +109,9 @@ def train_autoencoder(model, data, num_epochs=10, batch_size=64):
 
 def visualize_levels(levels, save_path=None):
     num_levels = len(levels)
-    fig, axes = plt.subplots(1, num_levels, figsize=(5*num_levels, 5))
+    rows, cols = 5, 10  # 5 rows, 10 columns to display 50 levels
+    fig, axes = plt.subplots(rows, cols, figsize=(cols*2, rows*2))
     
-    # If only one level, axes will not be an array, so we convert it to a single-element list
-    if num_levels == 1:
-        axes = [axes]
-
     # Color mapping
     color_map = {
         0: [0.6, 0.4, 0.2],  # Wall: Brown
@@ -125,14 +122,17 @@ def visualize_levels(levels, save_path=None):
     }
 
     for i, level in enumerate(levels):
+        row = i // cols
+        col = i % cols
+        
         # Create RGB image
         rgb_level = np.zeros((*level.shape, 3))
         for value, color in color_map.items():
             rgb_level[level == value] = color
 
-        axes[i].imshow(rgb_level)
-        axes[i].set_title(f"Level {i+1}")
-        axes[i].axis('off')
+        axes[row, col].imshow(rgb_level)
+        axes[row, col].set_title(f"Level {i+1}", fontsize=8)
+        axes[row, col].axis('off')
 
     plt.tight_layout()
     
@@ -252,9 +252,10 @@ if __name__ == "__main__":
         save_model(model, saved_model_path)
     
     # Generate new levels
-    new_levels = generate_level(model, num_levels=5, num_boxes=3, min_size=8, max_size=15)
+    new_levels = generate_level(model, num_levels=50, num_boxes=3, min_size=8, max_size=15)
     
     print("New levels generated.")
     visualize_levels(new_levels, save_path="generated_levels.png")
 
     print("Visualization of generated levels saved as 'generated_levels.png'")
+# %%

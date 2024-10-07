@@ -6,8 +6,6 @@ import jax.numpy as jnp
 from jax import random
 import matplotlib.pyplot as plt
 
-
-
 # %% Run
 def load():
     dataset_path = 'C:\\Transfer\\Dokumenty\\DANSKO\\ITU\\Games\\3rdSemester\\AI\\AI-games\\prjs\\three\\fingers'
@@ -36,13 +34,12 @@ def load():
             images.append(img)
             labels.append(label)
 
-
     X = jnp.array(images)
     X = X.astype('float32') / 255.0
 
     unique_labels = sorted(set(labels))
     label_to_index = {label: index for index, label in enumerate(unique_labels)}
-    y = [label_to_index[label] for label in labels]
+    y = jnp.array([label_to_index[label] for label in labels])
 
     # Create a reverse mapping from index to label
     index_to_label = {index: label for label, index in label_to_index.items()}
@@ -59,10 +56,12 @@ def load():
     plt.figure(figsize=(8, 8))
     plt.imshow(image)
     plt.axis('off')
-    plt.title(f"Label: {index_to_label[label]}")
+    plt.title(f"Label: {index_to_label[int(label)]}")  # Convert label to int
     plt.show()
-    
 
-load()
+    # Print dataset information
+    print(f"Dataset shape: {X.shape}")
+    print(f"Number of classes: {len(unique_labels)}")
 
+    return X, y, unique_labels
 # %%

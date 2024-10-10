@@ -65,12 +65,16 @@ def init_params(key, input_shape, n_classes):
 
     flattened_size = 768  # Update this value based on the output
 
+    # Use He initialization
+    def he_init(key, shape):
+        return random.normal(key, shape) * jnp.sqrt(2 / shape[0])
+
     return {
-        'conv1': random.normal(k1, (32, 3, 3, 3)),
-        'conv2': random.normal(k2, (64, 32, 3, 3)),
-        'conv3': random.normal(k3, (128, 64, 3, 3)),
-        'dense1': random.normal(k4, (flattened_size, 512)),
-        'dense2': random.normal(k5, (512, n_classes)),
+        'conv1': he_init(k1, (32, 3, 3, 3)),
+        'conv2': he_init(k2, (64, 32, 3, 3)),
+        'conv3': he_init(k3, (128, 64, 3, 3)),
+        'dense1': he_init(k4, (flattened_size, 512)),
+        'dense2': he_init(k5, (512, n_classes)),
     }
 
 @jit
@@ -135,48 +139,41 @@ def update(params, x, y, key, opt_state):
     params = optax.apply_updates(params, updates)
     return params, opt_state, loss_value
 
-@jit
-def train_epoch(carry, xs):
-    params, opt_state, key = carry
-    x, y = xs
-    key, subkey = random.split(key)
-    params, opt_state, loss = update(params, x, y, subkey, opt_state)
-    return (params, opt_state, key), loss
 
 # Load the dataset
 X, y, X_test, y_test, unique_labels = load()
 
 # Initialize model and optimizer
-batch_size = 32
-learning_rate = 0.001
-num_epochs = 30
+learning_rate = 0.0001
+num_epochs = 3
+
 
 key = random.PRNGKey(0)
 n_classes = len(unique_labels)
 input_shape = (128, 128, 3)
 params = init_params(key, input_shape, n_classes)
-optimizer = optax.adam(learning_rate)
+optimizer = optax.chain(
+    optax.clip_by_global_norm(1.0),  # Gradient clipping
+    optax.adam(learning_rate)
+)
 opt_state = optimizer.init(params)
+
+# Prepare for GIF creation
+conv_layer_frames = [[], [], []]
 
 # Training loop
 for epoch in range(num_epochs):
+    start_time = time.time()
+    
     key, subkey = random.split(key)
-    permutation = random.permutation(subkey, len(X))
-    X_shuffled = X[permutation]
-    y_shuffled = y[permutation]
     
-    num_complete_batches = len(X) // batch_size
+    params, opt_state, loss_value = update(params, X, y, subkey, opt_state)
     
-    X_batched = X_shuffled[:num_complete_batches * batch_size].reshape((-1, batch_size, 128, 128, 3))
-    y_batched = y_shuffled[:num_complete_batches * batch_size].reshape((-1, batch_size))
-    
-    (params, opt_state, _), losses = jax.lax.scan(
-        train_epoch, 
-        (params, opt_state, key), 
-        (X_batched, y_batched)
-    )
-    
-    print(f"Epoch {epoch+1}, Loss: {losses.mean():.4f}")
+    epoch_time = time.time() - start_time
+
+    # Print the epoch information
+    print(f"Epoch {epoch+1}/{num_epochs}, Loss: {loss_value:.4f}, Time: {epoch_time:.2f}s")    
+
 
 # After training, save the model parameters
 model_filename = 'trained_model_params.pkl'
@@ -196,9 +193,6 @@ print(f"Model parameters saved to {model_filename}")
 
 # %% Load and Run the trained model
 
-print("X shape:", X.shape)
-print("X_test shape:", X_test.shape)
-
 with open('trained_model_params.pkl', 'rb') as f:
     params = pickle.load(f)
 
@@ -207,6 +201,9 @@ with open('X_params.pkl', 'rb') as f:
 
 with open('y_params.pkl', 'rb') as f:
     y = pickle.load(f)
+
+print("X shape:", X.shape)
+print("X_test shape:", X_test.shape)
 
 # Evaluation
 @jit
@@ -221,24 +218,36 @@ test_accuracy = evaluate(params, X_test, y_test)
 print(f"Training Accuracy: {train_accuracy:.4f}")
 print(f"Test Accuracy: {test_accuracy:.4f}")
 
-# Visualize results
 def visualize_results(params, X, y, unique_labels):
     key = random.PRNGKey(1)
     logits = model(params, X, key, train=False)
     predictions = jnp.argmax(logits, axis=-1)
     
-    n_samples = 4
-    fig, axes = plt.subplots(2, n_samples, figsize=(15, 6))
+    n_samples = 20
+    n_cols = 5
+    n_rows = (n_samples + n_cols - 1) // n_cols
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(20, 4 * n_rows))
+    
     for i in range(n_samples):
         idx = random.randint(random.PRNGKey(i), (), 0, len(X))
         
-        axes[0, i].imshow(X[idx])
-        axes[0, i].set_title(f"Original: {unique_labels[y[idx]]}")
-        axes[0, i].axis('off')
+        row = i // n_cols
+        col = i % n_cols
         
-        axes[1, i].imshow(X[idx])
-        axes[1, i].set_title(f"Predicted: {unique_labels[predictions[idx]]}")
-        axes[1, i].axis('off')
+        axes[row, col].imshow(X[idx])
+        original_label = unique_labels[y[idx]]
+        predicted_label = unique_labels[predictions[idx]]
+        
+        color = 'green' if original_label == predicted_label else 'red'
+        
+        axes[row, col].set_title(f"O: {original_label}\nP: {predicted_label}", color=color)
+        axes[row, col].axis('off')
+    
+    # Remove any unused subplots
+    for i in range(n_samples, n_rows * n_cols):
+        row = i // n_cols
+        col = i % n_cols
+        fig.delaxes(axes[row, col])
     
     plt.tight_layout()
     plt.show()
